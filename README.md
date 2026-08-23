@@ -64,8 +64,34 @@ go run ./tagger -limit 50          # 查看计划
 go run ./tagger -limit 50 -apply   # 写入(临时 rw 挂载 -> ffmpeg 写标签 -> 恢复 ro)
 ```
 
+标签修复(只处理库里 `[Unknown Artist]` 的文件,解析"编号.歌名 歌手 (DJ版)"等
+特殊命名 → 网易云验证 → 写回歌名/歌手/专辑):
+
+```bash
+go run ./tagger -fix-tags -limit 1000 -apply
+```
+
 > 网易云无匿名流派接口,标签来自推断(专辑 type + 曲名/专辑名特征规则,含繁体变体);
 > 无可靠数据源的普通专辑不打标。`tagger/rules.go` 可自行扩展规则。
+
+## 手动匹配工具
+
+自动匹配不了的歌(网易云搜不到/名字差太远),手动指定对应关系:
+
+```bash
+go run ./match -q "歌名 歌手"                # 交互:选本地歌 → 选网易云候选
+go run ./match -q "黄昏" -local 1 -netease 2 # 非交互:第1首本地歌 ↔ 网易云第2条
+```
+
+选好后自动:写 `.lrc` 伴生文件(直写宿主机)+ 更新插件歌词缓存(立即生效)。
+
+## 共用包
+
+```
+navid/    Subsonic API 客户端
+nassh/    NAS SSH 执行器(真实路径查询/.lrc 写入/插件缓存写入)
+parser/   文件名解析器链
+```
 
 ## 目录结构
 
