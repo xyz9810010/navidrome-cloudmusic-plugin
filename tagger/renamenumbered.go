@@ -48,7 +48,12 @@ func runRenameNumbered(cfg localConfig, limit int, apply bool) int {
 		}
 		ext := pathExt(r.Path)
 		artist := strings.ReplaceAll(r.Artist, "/", ",") // 多歌手与库内惯例一致
-		newBase := fmt.Sprintf("%s - %s%s", r.Title, artist, ext)
+		title := sanitizeName(r.Title)
+		if title == "" {
+			skipUnknown++
+			continue
+		}
+		newBase := fmt.Sprintf("%s - %s%s", title, artist, ext)
 		if newBase == base {
 			skipSame++
 			continue
@@ -103,4 +108,13 @@ func runRenameNumbered(cfg localConfig, limit int, apply bool) int {
 func isUnknown(artist string) bool {
 	a := strings.ToLower(artist)
 	return strings.Contains(a, "unknown") || strings.Contains(a, "未知")
+}
+
+// sanitizeName 清洗文件名:去掉路径分隔符与不可用字符
+// (部分文件的内嵌标题标签混进了路径字符串)
+func sanitizeName(s string) string {
+	s = strings.ReplaceAll(s, "/", "·")
+	s = strings.ReplaceAll(s, "\\", "")
+	s = strings.ReplaceAll(s, "\x00", "")
+	return strings.TrimSpace(s)
 }

@@ -127,7 +127,7 @@ func (c *Client) ListSongsMissingLrc() ([]SongRef, error) {
 	// 2. 全量歌曲,比对过滤
 	out, err := c.Run(
 		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
-			`"select id || '|' || path || '|' || title || '|' || coalesce(artist,'') from media_file;"`)
+			`"select id || '|' || path || '|' || title || '|' || coalesce(artist,'') from media_file where missing=0;"`)
 	if err != nil {
 		return nil, err
 	}

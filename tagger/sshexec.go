@@ -172,7 +172,7 @@ type SongRow struct {
 func (s *SSHExec) QueryAllSongs() ([]SongRow, error) {
 	out, err := s.Run(
 		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
-			`"select path || '|' || title || '|' || coalesce(artist,'') from media_file;"`)
+			`"select path || '|' || title || '|' || coalesce(artist,'') from media_file where missing=0;"`)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +219,7 @@ func (s *SSHExec) QuerySongPaths(ids []string) (map[string]string, error) {
 		quoted[i] = "'" + id + "'"
 	}
 	cmd := fmt.Sprintf(
-		`docker exec navidrome-cn sqlite3 /data/navidrome.db "select id || '|' || path from media_file where id in (%s);"`,
+		`docker exec navidrome-cn sqlite3 /data/navidrome.db "select id || '|' || path from media_file where missing=0 and id in (%s);"`,
 		strings.Join(quoted, ","))
 	out, err := s.Run(cmd)
 	if err != nil {
