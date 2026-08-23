@@ -88,6 +88,21 @@ func TestKeywordStripsTrackNum(t *testing.T) {
 	}
 }
 
+func TestMatchArtistShortName(t *testing.T) {
+	// 超短名只允许精确匹配,"en" 不能命中 "Ben"
+	artists := []ArtistResult{
+		{ID: 1, Name: "Ben"},
+		{ID: 2, Name: "EN"},
+	}
+	if best := MatchArtist("en", artists); best == nil || best.ID != 2 {
+		t.Fatalf("超短名应精确命中 EN, 实际: %+v", best)
+	}
+	// 没有精确项时返回 nil(不回退模糊)
+	if best := MatchArtist("en", []ArtistResult{{ID: 1, Name: "Ben"}}); best != nil {
+		t.Fatalf("超短名不应模糊命中: %+v", best)
+	}
+}
+
 func TestMatchPrefersOriginal(t *testing.T) {
 	in := MatchInput{Title: "晴天", Artist: "周杰伦", Album: "叶惠美"}
 	songs := []Song{

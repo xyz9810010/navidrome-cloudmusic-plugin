@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"cloudmusic-plugin/netease"
 
@@ -140,8 +140,9 @@ func resolveAlbum(name, artist string) *albumInfo {
 	if err != nil || len(albums) == 0 {
 		return nil
 	}
-	best, _ := netease.MatchAlbum(name, artist, albums)
-	if best == nil {
+	best, score := netease.MatchAlbum(name, artist, albums)
+	// 低于 40 分视为不可信,不缓存(防止垃圾专辑信息进库)
+	if best == nil || score < 40 {
 		return nil
 	}
 	info := albumInfo{ID: best.ID, Pic: best.PicURL}
@@ -187,20 +188,49 @@ func (a *agent) GetAlbumInfo(req metadata.AlbumRequest) (*metadata.AlbumInfoResp
 	return &metadata.AlbumInfoResponse{Name: name, Description: strings.ReplaceAll(strings.TrimSpace(desc), "\n", "<br>")}, nil
 }
 
-var cleanupV1Once sync.Once
-
 // ---------- 歌词 ----------
 
 // lyricCache 歌词缓存(插件 KVStore,免去重复搜索网易云)
 type lyricCache struct {
 	Found bool   `json:"found"`
 	Text  string `json:"text,omitempty"`
+	Ts    int64  `json:"ts,omitempty"` // 写入时间戳;负缓存过期后可重新搜索
 }
 
+// 负缓存有效期:30 天后允许重新搜索(网易云上新/曲库改名的歌有机会再命中)
+const negativeCacheTTL = 30 * 24 * 3600
+
 func setLyricCache(key string, found bool, text string) {
-	if b, err := json.Marshal(lyricCache{Found: found, Text: text}); err == nil {
+	if b, err := json.Marshal(lyricCache{Found: found, Text: text, Ts: time.Now().Unix()}); err == nil {
 		// 注意:宿主未提供 kvstore_setwithttl,只能无 TTL 存储
 		_ = host.KVStoreSet(key, b)
+	}
+}
+
+// stashMatchCaches 歌词匹配成功时,顺手把 歌手/专辑 的网易云 ID 写进解析缓存:
+// 之后打开歌手页/专辑页零搜索。图片链接拿不到就不写(避免空 pic 覆盖好值)。
+func stashMatchCaches(in netease.MatchInput, best *netease.Song) {
+	if best == nil {
+		return
+	}
+	// 专辑:ID 必存(封面可再经 song/detail 兜底)
+	if in.Album != "" && best.Album.ID > 0 {
+		if b, err := json.Marshal(albumInfo{ID: best.Album.ID, Pic: best.Album.PicURL}); err == nil {
+			_ = host.KVStoreSet(cacheKey("cm:album", in.Album, in.Artist), b)
+		}
+	}
+	// 歌手:仅有图时才存,避免空 pic 永久遮蔽头像查询
+	for _, ar := range best.Artists {
+		pic := ar.Img1v1
+		if pic == "" {
+			pic = ar.PicURL
+		}
+		if ar.ID > 0 && pic != "" && in.Artist != "" {
+			if b, err := json.Marshal(artistInfo{ID: ar.ID, Pic: pic}); err == nil {
+				_ = host.KVStoreSet(cacheKey("cm:artist", in.Artist, ""), b)
+			}
+			break
+		}
 	}
 }
 
@@ -225,17 +255,15 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 				writeLrcSidecar(track.Path, lc.Text)
 				return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: lc.Text}}}, nil
 			}
-			return lyrics.GetLyricsResponse{}, nil
+			// 负缓存过期则重新搜索(老条目无时间戳视为永久)
+			if lc.Ts == 0 || time.Now().Unix()-lc.Ts < negativeCacheTTL {
+				return lyrics.GetLyricsResponse{}, nil
+			}
+			pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 负缓存过期,重新搜索: %s - %s", artist, track.Title))
 		}
 	}
 
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 入口: %s - %s (album=%s)", artist, track.Title, track.Album))
-
-	// 清理旧版本缓存 key(匹配算法升级前的负缓存不再有意义)
-	cleanupV1Once.Do(func() {
-		_, _ = host.KVStoreDeleteByPrefix("cm:lyric:")
-		_, _ = host.KVStoreDeleteByPrefix("cm:lyric2:")
-	})
 
 	in := netease.MatchInput{Title: track.Title, Artist: artist, Album: track.Album}
 	best, via := resolveTrack(in)
@@ -244,6 +272,7 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 		setLyricCache(key, false, "")
 		return lyrics.GetLyricsResponse{}, nil
 	}
+	stashMatchCaches(in, best)
 
 	orig, trans, err := netease.LyricWithTranslation(best.ID)
 	if err != nil {
@@ -309,11 +338,11 @@ func resolveOne(in netease.MatchInput) (*netease.Song, string) {
 			return best, fmt.Sprintf("直搜%d分", score)
 		}
 	}
-	// 2. 专辑曲目
+	// 2. 专辑曲目(专辑门槛 40 分:内部曲目匹配仍要求 ≥50,错误成本只是一次请求)
 	if in.Album != "" && !strings.Contains(strings.ToLower(in.Album), "unknown") {
 		albums, err := netease.SearchAlbum(netease.CleanKeyword(in.Artist + " " + in.Album))
 		if err == nil && len(albums) > 0 {
-			if al, score := netease.MatchAlbum(in.Album, in.Artist, albums); al != nil && score >= 50 {
+			if al, score := netease.MatchAlbum(in.Album, in.Artist, albums); al != nil && score >= 40 {
 				if tracks, err := netease.AlbumTracks(al.ID); err == nil && len(tracks) > 0 {
 					if best, ts := netease.Match(in, tracks); best != nil && ts >= 50 {
 						return best, "专辑曲目"
@@ -358,6 +387,10 @@ func writeLrcSidecar(relPath, text string) {
 	}
 	full := strings.TrimSuffix(root, "/") + "/" + strings.TrimPrefix(relPath, "/")
 	lrc := strings.TrimSuffix(full, filepath.Ext(full)) + ".lrc"
+	// 已存在则跳过:避免每次播放重复写盘、也避免触发 Navidrome 文件监听重扫
+	if st, err := os.Stat(lrc); err == nil && st.Size() > 0 {
+		return
+	}
 	if err := os.WriteFile(lrc, []byte(text), 0644); err != nil {
 		pdk.Log(pdk.LogWarn, "lrc 写入失败("+lrc+"): "+err.Error())
 		return

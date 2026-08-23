@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
   "name": "CloudMusic Enhance",
   "author": "wujiaoxi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "网易云音乐增强:智能评分匹配,补全歌词(含翻译合并)、专辑封面、专辑简介、歌手简介与头像",
   "website": "https://github.com/xyz9810010/navidrome-cloudmusic-plugin",
   "permissions": {
@@ -15,7 +15,7 @@
     },
     "kvstore": {
       "reason": "缓存歌词全文、歌手/专辑 ID 匹配结果与图片链接",
-      "maxSize": "16777216"
+      "maxSize": "33554432"
     },
     "library": {
       "reason": "将歌词写成 .lrc 伴生文件,Navidrome 后续直接读文件、零网络请求",

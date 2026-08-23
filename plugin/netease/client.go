@@ -18,12 +18,13 @@ func baseHeaders() map[string]string {
 	}
 }
 
-// httpGet GET 请求,返回响应体
+// httpGet GET 请求,返回响应体(8秒超时,防网易云挂起卡死插件调用)
 func httpGet(rawURL string) ([]byte, error) {
 	resp, err := host.HTTPSend(host.HTTPRequest{
-		Method:  "GET",
-		URL:     rawURL,
-		Headers: baseHeaders(),
+		Method:    "GET",
+		URL:       rawURL,
+		Headers:   baseHeaders(),
+		TimeoutMs: 8000,
 	})
 	if err != nil {
 		return nil, err
@@ -44,7 +45,8 @@ func httpPostForm(rawURL string, data url.Values) ([]byte, error) {
 			"Referer":      "https://music.163.com/",
 			"Content-Type": "application/x-www-form-urlencoded",
 		},
-		Body: []byte(data.Encode()),
+		Body:      []byte(data.Encode()),
+		TimeoutMs: 8000,
 	})
 	if err != nil {
 		return nil, err

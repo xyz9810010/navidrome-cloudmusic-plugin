@@ -3,6 +3,7 @@ package netease
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // MatchInput 本地音乐元数据,用于和网易云搜索结果匹配
@@ -226,7 +227,8 @@ func MatchAlbum(wantAlbum, wantArtist string, albums []AlbumResult) (*AlbumResul
 	return best, bestScore
 }
 
-// MatchArtist 歌手匹配:精确名优先,其次包含关系
+// MatchArtist 歌手匹配:精确名优先,其次包含关系。
+// 超短名(≤2 字符,如 "en")只允许精确匹配,防止包含关系错配("en" ⊂ "Ben")
 func MatchArtist(want string, artists []ArtistResult) *ArtistResult {
 	w := norm(want)
 	if w == "" {
@@ -237,6 +239,9 @@ func MatchArtist(want string, artists []ArtistResult) *ArtistResult {
 		if norm(artists[i].Name) == w {
 			return &artists[i]
 		}
+	}
+	if utf8.RuneCountInString(w) <= 2 {
+		return nil // 超短名不做模糊匹配
 	}
 	// 第二轮:包含关系
 	for i := range artists {
