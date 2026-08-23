@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
   "name": "CloudMusic Enhance",
   "author": "wujiaoxi",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "网易云音乐增强:智能评分匹配,补全歌词(含翻译合并)、专辑封面、专辑简介、歌手简介与头像",
   "website": "https://github.com/xyz9810010/navidrome-cloudmusic-plugin",
   "permissions": {

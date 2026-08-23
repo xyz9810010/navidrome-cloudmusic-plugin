@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"cloudmusic-plugin/netease"
 
@@ -139,7 +140,7 @@ func resolveAlbum(name, artist string) *albumInfo {
 	if err != nil || len(albums) == 0 {
 		return nil
 	}
-	best := netease.MatchAlbum(name, artist, albums)
+	best, _ := netease.MatchAlbum(name, artist, albums)
 	if best == nil {
 		return nil
 	}
@@ -186,6 +187,8 @@ func (a *agent) GetAlbumInfo(req metadata.AlbumRequest) (*metadata.AlbumInfoResp
 	return &metadata.AlbumInfoResponse{Name: name, Description: strings.ReplaceAll(strings.TrimSpace(desc), "\n", "<br>")}, nil
 }
 
+var cleanupV1Once sync.Once
+
 // ---------- 歌词 ----------
 
 // lyricCache 歌词缓存(插件 KVStore,免去重复搜索网易云)
@@ -212,7 +215,8 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 	}
 
 	// 缓存命中直接返回(含负缓存:之前确认过没有的不再搜)
-	key := cacheKey("cm:lyric", artist, track.Title)
+	// v2: 匹配算法升级(标点归一化+三级兜底)后换 key,旧负缓存不再拦截
+	key := cacheKey("cm:lyric2", artist, track.Title)
 	if v, ok, _ := host.KVStoreGet(key); ok && len(v) > 0 {
 		var lc lyricCache
 		if json.Unmarshal(v, &lc) == nil {
@@ -227,34 +231,73 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 入口: %s - %s (album=%s)", artist, track.Title, track.Album))
 
+	// 清理 v1 时代的旧缓存 key(匹配算法升级前的负缓存不再有意义)
+	cleanupV1Once.Do(func() { _, _ = host.KVStoreDeleteByPrefix("cm:lyric:") })
+
 	in := netease.MatchInput{Title: track.Title, Artist: artist, Album: track.Album}
-	songs, err := netease.SearchSong(in.Keyword())
-	if err != nil || len(songs) == 0 {
-		// 搜索失败可能是网络抖动,不写负缓存
-		return lyrics.GetLyricsResponse{}, nil
-	}
-	best, score := netease.Match(in, songs)
-	// 低于 50 分(连歌名都不完全匹配)视为没找到,避免错误歌词
-	if best == nil || score < 50 {
-		pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 无可靠匹配: %s - %s (best=%d)", artist, track.Title, score))
+	best, via := resolveTrack(in)
+	if best == nil {
+		pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 无可靠匹配(三级兜底后): %s - %s", artist, track.Title))
 		setLyricCache(key, false, "")
 		return lyrics.GetLyricsResponse{}, nil
 	}
 
 	orig, trans, err := netease.LyricWithTranslation(best.ID)
 	if err != nil {
-		// 歌词接口失败不写负缓存
+		// 歌词接口失败可能是网络抖动,不写负缓存
 		return lyrics.GetLyricsResponse{}, nil
 	}
 	if orig == "" {
 		setLyricCache(key, false, "")
 		return lyrics.GetLyricsResponse{}, nil
 	}
-	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 匹配: %s - %s -> %s id=%d score=%d", artist, track.Title, best.Name, best.ID, score))
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 匹配[%s]: %s - %s -> %s id=%d", via, artist, track.Title, best.Name, best.ID))
 	text := netease.MergeTranslation(orig, trans)
 	setLyricCache(key, true, text)
 	writeLrcSidecar(track.Path, text)
 	return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: text}}}, nil
+}
+
+// resolveTrack 三级匹配,应对"歌名写法不一致":
+//  1. 直搜歌曲(关键词去标点) —— 解决 "下个,路口,见" vs "下个路口见"
+//  2. 专辑曲目反查 —— 专辑名通常更稳定,拿网易云专辑曲名表再匹配
+//  3. 歌手热门歌曲 —— 曲名乱/专辑错但歌手对时,从热门里捞
+//
+// 三级任一命中(≥50分)即返回,标注命中路径
+func resolveTrack(in netease.MatchInput) (*netease.Song, string) {
+	// 1. 直搜
+	if songs, err := netease.SearchSong(netease.CleanKeyword(in.Keyword())); err == nil && len(songs) > 0 {
+		if best, score := netease.Match(in, songs); best != nil && score >= 50 {
+			return best, fmt.Sprintf("直搜%d分", score)
+		}
+	}
+	// 2. 专辑曲目
+	if in.Album != "" {
+		albums, err := netease.SearchAlbum(netease.CleanKeyword(in.Artist + " " + in.Album))
+		if err == nil && len(albums) > 0 {
+			if al, score := netease.MatchAlbum(in.Album, in.Artist, albums); al != nil && score >= 50 {
+				if tracks, err := netease.AlbumTracks(al.ID); err == nil && len(tracks) > 0 {
+					if best, ts := netease.Match(in, tracks); best != nil && ts >= 50 {
+						return best, "专辑曲目"
+					}
+				}
+			}
+		}
+	}
+	// 3. 歌手热门
+	if in.Artist != "" {
+		artists, err := netease.SearchArtist(in.Artist)
+		if err == nil && len(artists) > 0 {
+			if ar := netease.MatchArtist(in.Artist, artists); ar != nil {
+				if hots, err := netease.ArtistHotSongs(ar.ID); err == nil && len(hots) > 0 {
+					if best, ts := netease.Match(in, hots); best != nil && ts >= 50 {
+						return best, "歌手热门"
+					}
+				}
+			}
+		}
+	}
+	return nil, ""
 }
 
 // writeLrcSidecar 把歌词写成音轨旁的 .lrc 伴生文件。

@@ -2,6 +2,43 @@ package netease
 
 import "testing"
 
+func TestNormPunctuation(t *testing.T) {
+	cases := [][2]string{
+		{"下个,路口,见", "下个路口见"},
+		{"下个、路口、见", "下个路口见"},
+		{"晴天 (女声版))", "晴天(女声版)"},
+		{"hello! world?", "helloworld"},
+		{"全角！符号？", "全角符号"},
+		{"２０２０", "2020"},       // 全角数字
+		{"ＦＡＩＲＹ", "fairy"},    // 全角字母
+		{"下個路口見", "下个路口见"},    // 繁体
+		{"後來的我們", "后来的我们"},    // 繁体
+		{"愛情來了", "爱情来了"},      // 繁体
+	}
+	for _, c := range cases {
+		if norm(c[0]) != norm(c[1]) {
+			t.Fatalf("归一化不等: %q vs %q (got %q / %q)", c[0], c[1], norm(c[0]), norm(c[1]))
+		}
+	}
+}
+
+func TestCleanKeyword(t *testing.T) {
+	if got := CleanKeyword("下个,路口,见  李宇春"); got != "下个路口见 李宇春" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestMatchPunctuationVariant(t *testing.T) {
+	in := MatchInput{Title: "下个,路口,见", Artist: "李宇春", Album: "李宇春"}
+	songs := []Song{
+		{Name: "下个路口见", Artists: []Artist{{Name: "李宇春"}}, Album: Album{Name: "李宇春"}},
+	}
+	best, score := Match(in, songs)
+	if best == nil || best.Name != "下个路口见" || score != 120 {
+		t.Fatalf("标点变体应满分命中: %+v score=%d", best, score)
+	}
+}
+
 func TestMatchPrefersOriginal(t *testing.T) {
 	in := MatchInput{Title: "晴天", Artist: "周杰伦", Album: "叶惠美"}
 	songs := []Song{
@@ -38,7 +75,7 @@ func TestMatchAlbum(t *testing.T) {
 		{ID: 1, Name: "叶惠美 (纪念版)", PicURL: "http://p1/x1.jpg"},
 		{ID: 18905, Name: "叶惠美", PicURL: "http://p1/x.jpg"},
 	}
-	best := MatchAlbum("叶惠美", "周杰伦", albums)
+	best, _ := MatchAlbum("叶惠美", "周杰伦", albums)
 	if best == nil || best.ID != 18905 {
 		t.Fatalf("期望精确专辑名胜出, 实际: %+v", best)
 	}

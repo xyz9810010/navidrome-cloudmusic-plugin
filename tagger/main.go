@@ -120,7 +120,7 @@ func main() {
 
 		// 专辑匹配 -> type
 		ndAlbumType := ""
-		if albums, err := cloudmusic.SearchAlbum(al.Artist + " " + al.Name); err == nil {
+		if albums, err := cloudmusic.SearchAlbum(cloudmusic.CleanKeyword(al.Artist + " " + al.Name)); err == nil {
 			for i := range albums {
 				if normEq(albums[i].Name, al.Name) {
 					ndAlbumType = albums[i].Type
@@ -132,7 +132,7 @@ func main() {
 		// 曲名匹配:用专辑第一首歌
 		first := songs[0]
 		matched := ""
-		if results, err := cloudmusic.Search(first.Artist + " " + first.Title); err == nil {
+		if results, err := cloudmusic.Search(cloudmusic.CleanKeyword(first.Artist + " " + first.Title)); err == nil {
 			in := cloudmusic.MatchInput{Title: first.Title, Artist: first.Artist, Album: al.Name}
 			if best, score := cloudmusic.Match(in, results); best != nil && score >= 50 {
 				matched = best.Name
@@ -227,8 +227,7 @@ func main() {
 }
 
 func normEq(a, b string) bool {
-	na := strings.ToLower(strings.ReplaceAll(a, " ", ""))
-	nb := strings.ToLower(strings.ReplaceAll(b, " ", ""))
+	na, nb := cloudmusic.Norm(a), cloudmusic.Norm(b)
 	return na == nb || strings.Contains(na, nb) || strings.Contains(nb, na)
 }
 

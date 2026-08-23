@@ -70,3 +70,34 @@ func ArtistDetail(id int) (briefDesc string, err error) {
 	}
 	return result.Artist.BriefDesc, nil
 }
+
+// AlbumTracks 专辑曲目列表(/api/v1/album 的 songs 字段)。
+// 用于兜底匹配:本地曲名和网易云曲名写法不一致时,经专辑反查正确曲目
+func AlbumTracks(albumID int) ([]Song, error) {
+	body, err := httpGet(fmt.Sprintf("https://music.163.com/api/v1/album/%d", albumID))
+	if err != nil || body == nil {
+		return nil, err
+	}
+	var result struct {
+		Songs []Song `json:"songs"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return result.Songs, nil
+}
+
+// ArtistHotSongs 歌手热门歌曲(/api/v1/artist 的 hotSongs 字段)
+func ArtistHotSongs(artistID int) ([]Song, error) {
+	body, err := httpGet(fmt.Sprintf("https://music.163.com/api/v1/artist/%d", artistID))
+	if err != nil || body == nil {
+		return nil, err
+	}
+	var result struct {
+		HotSongs []Song `json:"hotSongs"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return result.HotSongs, nil
+}
