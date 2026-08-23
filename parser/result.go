@@ -76,6 +76,59 @@ func takeTrailingVersion(s string) (string, string) {
 	return s, strings.Join(parts, " ")
 }
 
+// stripCopySuffix 剥掉重复下载产生的尾部副本后缀:"华晨宇 (1)" → "华晨宇"
+func stripCopySuffix(s string) string {
+	s = strings.TrimSpace(s)
+	for {
+		r, _ := utf8.DecodeLastRuneInString(s)
+		if r != ')' && r != '）' {
+			return s
+		}
+		idx := strings.LastIndexAny(s, "(（")
+		if idx <= 0 {
+			return s
+		}
+		inner := strings.Trim(s[idx:], "()（） ")
+		if inner == "" || !isASCIIDigits(inner) {
+			return s
+		}
+		s = strings.TrimSpace(s[:idx])
+	}
+}
+
+func isASCIIDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// versionWords 版本修饰词(裸词形态,与 cloudmusic/matcher.go 保持同步)
+var versionWords = []string{
+	"DJ沈念版", "DJ名龙版", "DJheap九天版", "DJ版", "DJ",
+	"激情版", "温柔版", "深情版", "女声版", "男声版", "童声版",
+	"加速版", "降速版", "完整版", "超燃版", "新版", "重制版",
+	"Live", "live", "Remix", "remix", "RMX", "Instrumental",
+	"伴奏", "纯音乐", "翻唱", "抖音版", "快手版",
+}
+
+// stripVersionWords 去裸版本词,并返回被剔除的词(收进 Version)
+func stripVersionWords(s string) (string, string) {
+	var removed []string
+	for _, w := range versionWords {
+		if strings.Contains(s, w) {
+			removed = append(removed, w)
+			s = strings.ReplaceAll(s, w, " ")
+		}
+	}
+	return s, strings.Join(removed, " ")
+}
+
 // takeOneTrailingBracket 剥一层结尾括号段;没有则原样返回
 func takeOneTrailingBracket(s string) (string, string) {
 	s = strings.TrimSpace(s)

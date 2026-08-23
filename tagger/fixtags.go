@@ -26,11 +26,11 @@ func runFixTags(sshHost, sshUser, sshPass string, limit int, apply bool) int {
 	}
 	defer exec.Close()
 
-	files, err := exec.ListMusicFiles()
+	files, err := exec.ListUntaggedSongs()
 	if err != nil {
-		fatal("列目录失败: %v", err)
+		fatal("查询无标签文件失败: %v", err)
 	}
-	fmt.Printf("音乐目录文件总数: %d\n", len(files))
+	fmt.Printf("无歌手标签的文件: %d 个(已修好/本就有标签的不会列出)\n", len(files))
 
 	// 解析 + 网易云验证(候选逐个试,取最高分)
 	var plan []fixItem

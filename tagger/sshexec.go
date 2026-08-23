@@ -143,6 +143,24 @@ func (s *SSHExec) WriteTags(path, title, artist, album string) error {
 	return err
 }
 
+// ListUntaggedSongs 从 Navidrome 库取"无歌手标签"的文件清单(相对 /music 路径)。
+// 已修好/本来就有标签的文件 artist 有值,天然不会出现 → 不会重复修。
+func (s *SSHExec) ListUntaggedSongs() ([]string, error) {
+	out, err := s.Run(
+		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
+			"\"select path from media_file where artist='[Unknown Artist]';\"")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 // QuerySongPaths 用 media_file.id(Subsonic song id)批量查真实相对路径。
 // 必须查库:该 fork 的 Subsonic API 返回虚拟层级路径,与磁盘扁平结构不符。
 func (s *SSHExec) QuerySongPaths(ids []string) (map[string]string, error) {
