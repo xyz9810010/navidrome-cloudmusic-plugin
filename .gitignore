@@ -9,4 +9,4 @@ ref-navidrome/
 # 构建中间产物(.ndp 发布物入库,方便直接下载)
 plugin/plugin.wasm
 *.exe
-fix-tags
+fixtags-full.log
