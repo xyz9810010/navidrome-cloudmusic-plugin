@@ -38,7 +38,7 @@ python -m zipfile -c cloudmusic.ndp plugin.wasm manifest.json
 
 ## 部署
 
-1. `cloudmusic.ndp` 放入 Navidrome 的插件目录(`<DataFolder>/plugins/`)
+1. 下载 [plugin/cloudmusic.ndp](plugin/cloudmusic.ndp)(仓库内直接提供最新构建;也可自己 `build.cmd` 构建),放入 Navidrome 的插件目录(`<DataFolder>/plugins/`)
 2. 配置环境变量(容器):
 
 ```text
