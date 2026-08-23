@@ -148,7 +148,7 @@ func (s *SSHExec) WriteTags(path, title, artist, album string) error {
 func (s *SSHExec) ListUntaggedSongs() ([]string, error) {
 	out, err := s.Run(
 		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
-			"\"select path from media_file where artist='[Unknown Artist]';\"")
+			"\"select path from media_file where artist='[Unknown Artist]' and missing=0;\"")
 	if err != nil {
 		return nil, err
 	}
