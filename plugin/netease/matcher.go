@@ -23,21 +23,132 @@ const (
 	scoreAlbumPartial  = 10
 )
 
-// Keyword 拼接搜索关键词
+// Keyword 拼接搜索关键词:曲名去序号前缀、去括号版本段(搜原曲,歌词通用)
 func (in MatchInput) Keyword() string {
-	return strings.TrimSpace(in.Artist + " " + in.Title)
+	return CleanKeyword(strings.TrimSpace(in.Artist + " " + searchTitle(in.Title)))
+}
+
+// stripTrackNum 去掉曲名开头的音轨序号:"0008.盛雪呼啦圈" → "盛雪呼啦圈"。
+// 规则:数字串后跟分隔符,或 0 开头的三位以上编号("0000忘川彼岸"),
+// 否则视为年份等正文保留("2020年的雪")。
+func stripTrackNum(s string) string {
+	s = strings.TrimSpace(s)
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	if i == 0 || i > 4 {
+		return s
+	}
+	rest := s[i:]
+	hasSep := false
+	for _, sp := range []string{".", "、", "．", "-", "_", "—", "–", " ", "　"} {
+		if strings.HasPrefix(rest, sp) {
+			hasSep = true
+			break
+		}
+	}
+	if !hasSep && !(s[0] == '0' && i >= 3) {
+		return s
+	}
+	rest = strings.TrimLeft(rest, ".、．-_-—– 　")
+	if rest == "" {
+		return s
+	}
+	return rest
+}
+
+// stripTrackNums 序号全清理:开头序号 + 任意位置的零填充编号 token。
+// 序号不一定在开头("盛雪呼啦圈专用音乐 0008 梁佳祺"),年份(2020)不以0开头不受影响
+func stripTrackNums(s string) string {
+	s = stripTrackNum(s)
+	out := make([]string, 0, 8)
+	for _, f := range strings.Fields(s) {
+		t := strings.Trim(f, ".,、．-_—")
+		if (len(t) == 3 || len(t) == 4) && t[0] == '0' {
+			allDigit := true
+			for i := 0; i < len(t); i++ {
+				if t[i] < '0' || t[i] > '9' {
+					allDigit = false
+					break
+				}
+			}
+			if allDigit {
+				continue // 零填充序号,剔除
+			}
+		}
+		out = append(out, f)
+	}
+	return strings.Join(out, " ")
+}
+
+// stripBrackets 去掉括号段(中英文括号/【】/{}),保留其余文本
+func stripBrackets(s string) string {
+	var b strings.Builder
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(', '（', '[', '【', '〔', '{':
+			depth++
+		case ')', '）', ']', '】', '〕', '}':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if depth == 0 {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
+// stripVersionWords 去版本修饰词
+func stripVersionWords(s string) string {
+	for _, w := range versionWords {
+		s = strings.ReplaceAll(s, w, " ")
+	}
+	return s
+}
+
+// searchTitle 搜索用曲名:去序号(含中部)、去括号段、去版本词(保留空格)
+func searchTitle(s string) string {
+	return stripVersionWords(stripBrackets(stripTrackNums(s)))
+}
+
+// versionWords 版本修饰词,核心名比较时剔除(长词在前防止部分替换)
+var versionWords = []string{
+	"DJ沈念版", "DJ名龙版", "DJheap九天版", "DJ版", "DJ",
+	"激情版", "温柔版", "深情版", "女声版", "男声版", "童声版",
+	"加速版", "降速版", "完整版", "超燃版", "新版", "重制版",
+	"Live", "live", "Remix", "remix", "RMX", "Instrumental",
+	"伴奏", "纯音乐", "翻唱", "抖音版", "快手版",
+}
+
+// coreTitle 核心曲名:去序号、去括号段、去版本词、归一化。
+// "0008.盛雪呼啦圈专用音乐 梁佳祺 (激情版)（DJ）" → "盛雪呼啦圈专用音乐梁佳祺"
+func coreTitle(s string) string {
+	return norm(searchTitle(s))
 }
 
 // Score 计算单首候选歌曲的匹配分
 func Score(in MatchInput, song Song) int {
 	score := 0
 
-	title := norm(song.Name)
-	wantTitle := norm(in.Title)
+	title := norm(stripTrackNums(song.Name))
+	wantTitle := norm(stripTrackNums(in.Title))
 	if wantTitle != "" && title == wantTitle {
 		score += scoreTitleExact
 	} else if wantTitle != "" && (strings.Contains(title, wantTitle) || strings.Contains(wantTitle, title)) {
 		score += scoreTitlePartial
+	} else {
+		// 核心名二次比较:序号/版本段干扰时仍能命中
+		ct, cw := coreTitle(song.Name), coreTitle(in.Title)
+		if ct != "" && ct == cw {
+			score += scoreTitleExact
+		} else if ct != "" && cw != "" && (strings.Contains(ct, cw) || strings.Contains(cw, ct)) {
+			score += scoreTitlePartial
+		}
 	}
 
 	wantArtist := norm(in.Artist)
@@ -192,6 +303,9 @@ func norm(s string) string {
 	}
 	return b.String()
 }
+
+// SearchTitle 导出:曲名清洗(去序号/括号版本段/版本词),供 agent 做"曲名内拆歌手"
+func SearchTitle(s string) string { return searchTitle(s) }
 
 // CleanKeyword 清洗搜索关键词:全角转半角、繁转简、去标点、保留空格分隔
 func CleanKeyword(s string) string {

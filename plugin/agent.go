@@ -215,8 +215,8 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 	}
 
 	// 缓存命中直接返回(含负缓存:之前确认过没有的不再搜)
-	// v2: 匹配算法升级(标点归一化+三级兜底)后换 key,旧负缓存不再拦截
-	key := cacheKey("cm:lyric2", artist, track.Title)
+	// v3: 新增无标签文件的"曲名内拆歌手"识别,旧负缓存不再拦截
+	key := cacheKey("cm:lyric3", artist, track.Title)
 	if v, ok, _ := host.KVStoreGet(key); ok && len(v) > 0 {
 		var lc lyricCache
 		if json.Unmarshal(v, &lc) == nil {
@@ -231,8 +231,11 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 入口: %s - %s (album=%s)", artist, track.Title, track.Album))
 
-	// 清理 v1 时代的旧缓存 key(匹配算法升级前的负缓存不再有意义)
-	cleanupV1Once.Do(func() { _, _ = host.KVStoreDeleteByPrefix("cm:lyric:") })
+	// 清理旧版本缓存 key(匹配算法升级前的负缓存不再有意义)
+	cleanupV1Once.Do(func() {
+		_, _ = host.KVStoreDeleteByPrefix("cm:lyric:")
+		_, _ = host.KVStoreDeleteByPrefix("cm:lyric2:")
+	})
 
 	in := netease.MatchInput{Title: track.Title, Artist: artist, Album: track.Album}
 	best, via := resolveTrack(in)
@@ -258,13 +261,48 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 	return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: text}}}, nil
 }
 
+// isUnknownArtist 占位歌手:"[Unknown Artist]" / "未知歌手" 等
+func isUnknownArtist(artist string) bool {
+	a := strings.ToLower(strings.TrimSpace(artist))
+	return a == "" || strings.Contains(a, "unknown") || strings.Contains(a, "未知")
+}
+
+// normalizeInput 处理无标签文件:歌手未知时,曲名里往往粘着歌手
+// ("0000.一曲相思 半阳 （DJ版）"),按空格拆出 "末段=歌手" 变体,逐个尝试
+func normalizeInput(in netease.MatchInput) []netease.MatchInput {
+	if !isUnknownArtist(in.Artist) {
+		return []netease.MatchInput{in}
+	}
+	in.Artist = ""
+	core := netease.SearchTitle(in.Title)
+	fields := strings.Fields(core)
+	if len(fields) < 2 {
+		return []netease.MatchInput{in}
+	}
+	v1 := in // 末段为歌手
+	v1.Title = strings.Join(fields[:len(fields)-1], " ")
+	v1.Artist = fields[len(fields)-1]
+	v2 := in // 全部当曲名,歌手空
+	v2.Title = core
+	return []netease.MatchInput{v1, v2}
+}
+
 // resolveTrack 三级匹配,应对"歌名写法不一致":
 //  1. 直搜歌曲(关键词去标点) —— 解决 "下个,路口,见" vs "下个路口见"
 //  2. 专辑曲目反查 —— 专辑名通常更稳定,拿网易云专辑曲名表再匹配
 //  3. 歌手热门歌曲 —— 曲名乱/专辑错但歌手对时,从热门里捞
 //
-// 三级任一命中(≥50分)即返回,标注命中路径
+// 无标签文件先拆出"曲名+歌手"变体,逐变体走三级;任一命中(≥50分)返回
 func resolveTrack(in netease.MatchInput) (*netease.Song, string) {
+	for _, v := range normalizeInput(in) {
+		if best, via := resolveOne(v); best != nil {
+			return best, via
+		}
+	}
+	return nil, ""
+}
+
+func resolveOne(in netease.MatchInput) (*netease.Song, string) {
 	// 1. 直搜
 	if songs, err := netease.SearchSong(netease.CleanKeyword(in.Keyword())); err == nil && len(songs) > 0 {
 		if best, score := netease.Match(in, songs); best != nil && score >= 50 {
@@ -272,7 +310,7 @@ func resolveTrack(in netease.MatchInput) (*netease.Song, string) {
 		}
 	}
 	// 2. 专辑曲目
-	if in.Album != "" {
+	if in.Album != "" && !strings.Contains(strings.ToLower(in.Album), "unknown") {
 		albums, err := netease.SearchAlbum(netease.CleanKeyword(in.Artist + " " + in.Album))
 		if err == nil && len(albums) > 0 {
 			if al, score := netease.MatchAlbum(in.Album, in.Artist, albums); al != nil && score >= 50 {

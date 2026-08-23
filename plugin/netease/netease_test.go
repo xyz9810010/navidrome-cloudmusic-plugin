@@ -39,6 +39,55 @@ func TestMatchPunctuationVariant(t *testing.T) {
 	}
 }
 
+func TestStripTrackNum(t *testing.T) {
+	cases := [][2]string{
+		{"0008.盛雪呼啦圈专用音乐", "盛雪呼啦圈专用音乐"},
+		{"0000.一曲相思", "一曲相思"},
+		{"0000忘川彼岸", "忘川彼岸"}, // 无分隔符
+		{"2020年的雪", "2020年的雪"}, // 年份不是序号,保留
+		{"晴天", "晴天"},
+	}
+	for _, c := range cases {
+		if got := stripTrackNum(c[0]); got != c[1] {
+			t.Fatalf("stripTrackNum(%q) = %q, want %q", c[0], got, c[1])
+		}
+	}
+}
+
+func TestStripMidTrackNum(t *testing.T) {
+	// 序号不一定在开头
+	if got, want := coreTitle("盛雪呼啦圈专用音乐 0008 梁佳祺 (激情版)（DJ）"), coreTitle("盛雪呼啦圈专用音乐 梁佳祺"); got != want {
+		t.Fatalf("中部序号未剔除: %q vs %q", got, want)
+	}
+	// 年份不受影响
+	if got, want := coreTitle("2020年的雪"), coreTitle("2020年的雪"); got != want {
+		t.Fatalf("年份被误删: %q", got)
+	}
+}
+
+func TestMatchDJVersionName(t *testing.T) {
+	// 用户实例:序号前缀 + 曲名里混着歌手名 + 混排括号版本段
+	in := MatchInput{Title: "0008.盛雪呼啦圈专用音乐 梁佳祺  (激情版)（DJ）", Artist: "梁佳祺"}
+	songs := []Song{
+		{Name: "呼啦圈专用音乐", Artists: []Artist{{Name: "梁佳祺"}}, Album: Album{Name: "呼啦圈专用音乐"}},
+		{Name: "无关的歌", Artists: []Artist{{Name: "梁佳祺"}}, Album: Album{}},
+	}
+	best, score := Match(in, songs)
+	if best == nil || best.Name != "呼啦圈专用音乐" {
+		t.Fatalf("DJ版本名应命中核心曲名: %+v", best)
+	}
+	if score < 70 {
+		t.Fatalf("期望核心名+歌手命中≥70分, 实际 %d", score)
+	}
+}
+
+func TestKeywordStripsTrackNum(t *testing.T) {
+	in := MatchInput{Title: "0008.一曲相思 (DJ版)", Artist: "半阳"}
+	if got := in.Keyword(); got != "半阳 一曲相思" {
+		t.Fatalf("Keyword = %q", got)
+	}
+}
+
 func TestMatchPrefersOriginal(t *testing.T) {
 	in := MatchInput{Title: "晴天", Artist: "周杰伦", Album: "叶惠美"}
 	songs := []Song{
