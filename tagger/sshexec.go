@@ -161,6 +161,53 @@ func (s *SSHExec) ListUntaggedSongs() ([]string, error) {
 	return files, nil
 }
 
+// SongRow 库中歌曲的路径与标签
+type SongRow struct {
+	Path   string
+	Title  string
+	Artist string
+}
+
+// QueryAllSongs 全量取 media_file 的 路径/歌名/歌手
+func (s *SSHExec) QueryAllSongs() ([]SongRow, error) {
+	out, err := s.Run(
+		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
+			`"select path || '|' || title || '|' || coalesce(artist,'') from media_file;"`)
+	if err != nil {
+		return nil, err
+	}
+	var rows []SongRow
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) == 3 && parts[0] != "" {
+			rows = append(rows, SongRow{Path: parts[0], Title: parts[1], Artist: parts[2]})
+		}
+	}
+	return rows, nil
+}
+
+// RenameSong 改名音频文件并同步改名伴生 .lrc(宿主路径,含子目录)
+func (s *SSHExec) RenameSong(oldRel, newRel string) error {
+	cmd := fmt.Sprintf("cd '/vol1/1000/音乐' && mv -n '%s' '%s'", shQuote(oldRel), shQuote(newRel))
+	if _, err := s.Run(cmd); err != nil {
+		return err
+	}
+	// 伴生 .lrc 同步改名
+	oldLrc := strings.TrimSuffix(oldRel, pathExt(oldRel)) + ".lrc"
+	newLrc := strings.TrimSuffix(newRel, pathExt(newRel)) + ".lrc"
+	_, _ = s.Run(fmt.Sprintf(
+		"cd '/vol1/1000/音乐' && if [ -f '%s' ]; then mv -n '%s' '%s'; fi",
+		shQuote(oldLrc), shQuote(oldLrc), shQuote(newLrc)))
+	return nil
+}
+
+func pathExt(p string) string {
+	if i := strings.LastIndex(p, "."); i > 0 {
+		return p[i:]
+	}
+	return ""
+}
+
 // QuerySongPaths 用 media_file.id(Subsonic song id)批量查真实相对路径。
 // 必须查库:该 fork 的 Subsonic API 返回虚拟层级路径,与磁盘扁平结构不符。
 func (s *SSHExec) QuerySongPaths(ids []string) (map[string]string, error) {

@@ -106,6 +106,11 @@ func (c *Client) SearchSongs(query string, count int) ([]Song, error) {
 	return out.SubsonicResponse.SearchResult3.Song, nil
 }
 
+// StartScan 触发全量重扫
+func (c *Client) StartScan() error {
+	return c.get("startScan.view", nil, nil)
+}
+
 // GetAlbums 分页拉专辑(alphabeticalByName)
 func (c *Client) GetAlbums(offset, size int) ([]Album, error) {
 	var out struct {

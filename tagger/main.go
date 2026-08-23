@@ -56,6 +56,7 @@ func main() {
 		limit   = flag.Int("limit", 10, "处理数量上限")
 		apply   = flag.Bool("apply", false, "实际写入(默认 dry-run)")
 		fixTags = flag.Bool("fix-tags", false, "标签修复模式:解析特殊命名文件,写回歌名/歌手/专辑标签")
+		renameN = flag.Bool("rename-numbered", false, "改名模式:仅序号开头的文件改为 '歌名 - 歌手.扩展名'")
 	)
 	flag.Parse()
 
@@ -89,6 +90,14 @@ func main() {
 			fatal("fix-tags 需要 SSH 配置(config.json 或 -ssh-* 参数)")
 		}
 		os.Exit(runFixTags(*sshHost, *sshUser, *sshPass, *limit, *apply))
+	}
+
+	// 序号文件改名模式
+	if *renameN {
+		if *sshHost == "" || *sshUser == "" || *sshPass == "" {
+			fatal("rename-numbered 需要 SSH 配置(config.json 或 -ssh-* 参数)")
+		}
+		os.Exit(runRenameNumbered(cfg, *limit, *apply))
 	}
 
 	sc := NewSubsonicClient(*server, *user, *pass)

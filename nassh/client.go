@@ -164,9 +164,14 @@ func (c *Client) SetLyricCache(artist, title, text string) error {
 	cmd := fmt.Sprintf(
 		`docker exec navidrome-cn sqlite3 /data/plugins/cloudmusic/kvstore.db `+
 			`"insert or replace into kvstore(key,value,size,created_at,updated_at) values('%s', x'%s', %d, datetime('now'), datetime('now'));"`,
-		key, hex.EncodeToString([]byte(value)), len(value))
+		sqlEscape(key), hex.EncodeToString([]byte(value)), len(value))
 	_, err := c.Run(cmd)
 	return err
+}
+
+// sqlEscape SQL 字符串转义(单引号翻倍)
+func sqlEscape(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
 }
 
 func mustJSON(s string) string {
