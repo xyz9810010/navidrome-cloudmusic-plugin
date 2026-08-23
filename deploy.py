@@ -39,6 +39,48 @@ def run(client, cmd, timeout=60):
     return out, err
 
 
+DOCKER_RUN_ENV = """-e ND_DEFAULTLANGUAGE=zh-Hans \
+-e ND_SCANNER_EXTRACTOR=ffmpeg \
+-e ND_COVERARTPRIORITY=external,embedded \
+-e ND_AGENTS=cloudmusic,deezer,lastfm,listenbrainz,apple-music \
+-e ND_LYRICSPRIORITY=embedded,.lrc,cloudmusic,nd-lyrics \
+-e ND_MUSICFOLDER=/music \
+-e ND_DATAFOLDER=/data \
+-e ND_CONFIGFILE=/data/navidrome.toml \
+-e ND_PORT=4533"""
+
+
+def ensure_container_env(client):
+    """环境变量被飞牛界面重建打回原样时,自动重建容器修复。"""
+    out, _ = run(client,
+        "docker inspect navidrome-cn --format '{{range .Config.Env}}{{println .}}{{end}}'")
+    ok = "cloudmusic" in out and "LYRICSPRIORITY" in out.upper()
+    if ok:
+        print("[env] 环境变量完整 ✓")
+        return
+    print("[env] 检测到环境变量缺失(可能被飞牛重建),自动重建容器...")
+    out, err = run(client,
+        "docker rm -f navidrome-cn >/dev/null 2>&1; "
+        f"docker run -d --name navidrome-cn --restart unless-stopped -p 4535:4533 "
+        f"-v /vol2/1000/music:/music:ro -v /vol1/@appdata/navidrome-cn-data:/data "
+        f"{DOCKER_RUN_ENV} navidrome-cn:test")
+    if "error" in out.lower() or err:
+        raise RuntimeError(f"容器重建失败: {out} {err}")
+    time.sleep(10)
+    print("[env] 容器已重建(含 cloudmusic AGENTS 与 LYRICSPRIORITY)")
+
+
+def sync_toml(client):
+    """同步 navidrome.toml 到数据卷(数据卷持久,容器重建不丢)。"""
+    sftp = client.open_sftp()
+    sftp.put("navidrome.toml", "/tmp/navidrome.toml")
+    sftp.close()
+    run(client,
+        "docker cp /tmp/navidrome.toml navidrome-cn:/data/navidrome.toml && "
+        "docker exec navidrome-cn chown root:root /data/navidrome.toml")
+    print("[toml] navidrome.toml 已同步到 /data")
+
+
 def main():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -46,6 +88,10 @@ def main():
                    allow_agent=False, look_for_keys=False)
 
     try:
+        # 0. 环境自检修复 + 配置文件同步
+        ensure_container_env(client)
+        sync_toml(client)
+
         # 1. 上传
         sftp = client.open_sftp()
         sftp.put(LOCAL_NDP, REMOTE_TMP)

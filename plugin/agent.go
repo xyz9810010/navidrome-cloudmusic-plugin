@@ -186,9 +186,21 @@ func (a *agent) GetAlbumInfo(req metadata.AlbumRequest) (*metadata.AlbumInfoResp
 
 // ---------- 歌词 ----------
 
+// lyricCache 歌词缓存(插件 KVStore,免去重复搜索网易云)
+type lyricCache struct {
+	Found bool   `json:"found"`
+	Text  string `json:"text,omitempty"`
+}
+
+func setLyricCache(key string, found bool, text string) {
+	if b, err := json.Marshal(lyricCache{Found: found, Text: text}); err == nil {
+		// 注意:宿主未提供 kvstore_setwithttl,只能无 TTL 存储
+		_ = host.KVStoreSet(key, b)
+	}
+}
+
 func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse, error) {
 	track := req.Track
-	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 入口: %s - %s (album=%s)", track.Artist, track.Title, track.Album))
 	artist := track.Artist
 	if len(track.Artists) > 0 && track.Artists[0].Name != "" {
 		artist = track.Artists[0].Name
@@ -197,23 +209,46 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 		artist = track.AlbumArtist
 	}
 
+	// 缓存命中直接返回(含负缓存:之前确认过没有的不再搜)
+	key := cacheKey("cm:lyric", artist, track.Title)
+	if v, ok, _ := host.KVStoreGet(key); ok && len(v) > 0 {
+		var lc lyricCache
+		if json.Unmarshal(v, &lc) == nil {
+			if lc.Found {
+				pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 缓存命中: %s - %s", artist, track.Title))
+				return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: lc.Text}}}, nil
+			}
+			return lyrics.GetLyricsResponse{}, nil
+		}
+	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 入口: %s - %s (album=%s)", artist, track.Title, track.Album))
+
 	in := netease.MatchInput{Title: track.Title, Artist: artist, Album: track.Album}
 	songs, err := netease.SearchSong(in.Keyword())
 	if err != nil || len(songs) == 0 {
+		// 搜索失败可能是网络抖动,不写负缓存
 		return lyrics.GetLyricsResponse{}, nil
 	}
 	best, score := netease.Match(in, songs)
 	// 低于 50 分(连歌名都不完全匹配)视为没找到,避免错误歌词
 	if best == nil || score < 50 {
 		pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 无可靠匹配: %s - %s (best=%d)", artist, track.Title, score))
+		setLyricCache(key, false, "")
 		return lyrics.GetLyricsResponse{}, nil
 	}
 
 	orig, trans, err := netease.LyricWithTranslation(best.ID)
-	if err != nil || orig == "" {
+	if err != nil {
+		// 歌词接口失败不写负缓存
+		return lyrics.GetLyricsResponse{}, nil
+	}
+	if orig == "" {
+		setLyricCache(key, false, "")
 		return lyrics.GetLyricsResponse{}, nil
 	}
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 匹配: %s - %s -> %s id=%d score=%d", artist, track.Title, best.Name, best.ID, score))
 	text := netease.MergeTranslation(orig, trans)
+	setLyricCache(key, true, text)
 	return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: text}}}, nil
 }

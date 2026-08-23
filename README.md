@@ -80,6 +80,25 @@ deploy.py      一键部署
 config.json    本地凭证(gitignore,勿提交)
 ```
 
+## 缓存架构(哪些数据不会重复请求)
+
+| 数据 | 缓存层 | 说明 |
+|---|---|---|
+| 封面/头像 | Navidrome 服务端 | 首次取回即持久缓存 |
+| 歌手/专辑简介 | Navidrome 服务端 | 库缓存,含负缓存 |
+| 标签 | 音频文件内 | tagger 直接写入,永久 |
+| 歌词 | 三层 | ①文件内嵌/.lrc 优先命中(不发起请求) ②Navidrome 服务端缓存结果 ③插件 KVStore 缓存歌词全文与"确认无歌词"负缓存(网络失败不缓存,避免抖动被记住) |
+| 网易云 ID 匹配 | 插件 KVStore | 歌手/专辑 ID 解析结果持久缓存 |
+
+插件 KVStore 上限在 manifest 里声明(默认 16MB,约数千首歌词)。
+
+## 配置持久化
+
+飞牛等 NAS 的 Docker 管理界面重建容器会打回手工设置的环境变量。本项目:
+
+- `navidrome.toml` 同步到数据卷 `/data`(容器重建不丢), LyricsPriority 等以文件为准
+- `deploy.py` 每次部署自动检测环境变量缺失并重建容器修复
+
 ## 已知限制
 
 - 插件 HTTP 走宿主 `extism:host/user`,函数集固定(如无 kvstore_setwithttl)

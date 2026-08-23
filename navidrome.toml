@@ -1,0 +1,10 @@
+# Navidrome 配置(部署到容器 /data/navidrome.toml,由 deploy.py 自动同步)
+# 写在数据卷里,容器被飞牛/手动重建也不丢失
+
+# 歌词来源优先级:文件内嵌 > .lrc 伴生文件 > cloudmusic 插件 > nd-lyrics 插件
+LyricsPriority = "embedded,.lrc,cloudmusic,nd-lyrics"
+
+# 元数据代理顺序:cloudmusic 优先
+# 注意:若容器环境变量带了 ND_AGENTS(飞牛原始配置),会覆盖这里的 Agents,
+# deploy.py 会检测并自动重建容器修复
+Agents = ["cloudmusic", "deezer", "lastfm", "listenbrainz", "apple-music"]
