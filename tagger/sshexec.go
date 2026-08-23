@@ -61,7 +61,7 @@ func (s *SSHExec) recreateContainer() error {
 	cmd := `docker rm -f navidrome-cn >/dev/null 2>&1; docker run -d --name navidrome-cn \
 --restart unless-stopped \
 -p 4535:4533 \
--v /vol2/1000/music:/music:rw \
+-v '/vol1/1000/音乐':/music:rw \
 -v /vol1/@appdata/navidrome-cn-data:/data \
 -e ND_DEFAULTLANGUAGE=zh-Hans \
 -e ND_SCANNER_EXTRACTOR=ffmpeg \
@@ -108,6 +108,39 @@ func (s *SSHExec) WriteGenreTag(path, genre string) error {
 // shQuote 单引号转义,防止路径注入
 func shQuote(s string) string {
 	return strings.ReplaceAll(s, "'", `'\''`)
+}
+
+// ListMusicFiles 列出音乐目录下的音频文件名(扁平库,flac/mp3)
+func (s *SSHExec) ListMusicFiles() ([]string, error) {
+	out, err := s.Run("ls -1 '/vol1/1000/音乐'")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, ".flac") || strings.HasSuffix(line, ".mp3") {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// WriteTags 写 title/artist/album 标签(流拷贝);album 为空则不写
+func (s *SSHExec) WriteTags(path, title, artist, album string) error {
+	ext := ".flac"
+	if i := strings.LastIndex(path, "."); i >= 0 {
+		ext = path[i:]
+	}
+	meta := fmt.Sprintf("-metadata title='%s' -metadata artist='%s'", shQuote(title), shQuote(artist))
+	if album != "" {
+		meta += fmt.Sprintf(" -metadata album='%s'", shQuote(album))
+	}
+	shell := fmt.Sprintf(
+		`set -e; cd /music; f='%s'; ffmpeg -y -loglevel error -i "$f" -map 0 -c copy %s -f %s "$f.tagging.tmp" && mv "$f.tagging.tmp" "$f"`,
+		shQuote(path), meta, strings.TrimPrefix(ext, "."))
+	_, err := s.Run("docker exec navidrome-cn sh -c '" + shQuote(shell) + "'")
+	return err
 }
 
 // QuerySongPaths 用 media_file.id(Subsonic song id)批量查真实相对路径。

@@ -56,7 +56,7 @@ def ensure_container_env(client):
         "docker inspect navidrome-cn --format '{{range .Config.Env}}{{println .}}{{end}}'")
     mounts, _ = run(client, "docker inspect navidrome-cn --format '{{json .HostConfig.Binds}}'")
     ok = ("cloudmusic" in out and "LYRICSPRIORITY" in out.upper()
-          and ":rw" in mounts)
+          and ":rw" in mounts and "1000/音乐" in mounts)
     if ok:
         print("[env] 环境变量与 rw 挂载完整 ✓")
         return
@@ -64,7 +64,7 @@ def ensure_container_env(client):
     out, err = run(client,
         "docker rm -f navidrome-cn >/dev/null 2>&1; "
         f"docker run -d --name navidrome-cn --restart unless-stopped -p 4535:4533 "
-        f"-v /vol2/1000/music:/music:rw -v /vol1/@appdata/navidrome-cn-data:/data "
+        f"-v '/vol1/1000/音乐':/music:rw -v /vol1/@appdata/navidrome-cn-data:/data "
         f"{DOCKER_RUN_ENV} navidrome-cn:test")
     if "error" in out.lower() or err:
         raise RuntimeError(f"容器重建失败: {out} {err}")

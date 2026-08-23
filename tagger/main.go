@@ -53,8 +53,9 @@ func main() {
 		sshHost = flag.String("ssh-host", "", "NAS SSH 地址")
 		sshUser = flag.String("ssh-user", "", "NAS SSH 用户")
 		sshPass = flag.String("ssh-pass", "", "NAS SSH 密码")
-		limit   = flag.Int("limit", 10, "处理专辑数上限")
+		limit   = flag.Int("limit", 10, "处理数量上限")
 		apply   = flag.Bool("apply", false, "实际写入(默认 dry-run)")
+		fixTags = flag.Bool("fix-tags", false, "标签修复模式:解析特殊命名文件,写回歌名/歌手/专辑标签")
 	)
 	flag.Parse()
 
@@ -80,6 +81,14 @@ func main() {
 	}
 	if *server == "" || *user == "" || *pass == "" {
 		fatal("缺少 Navidrome 地址/账号:请复制 config.example.json 为 config.json 填写,或用 -server/-user/-pass 指定")
+	}
+
+	// 标签修复模式:只需 SSH,不走 Subsonic
+	if *fixTags {
+		if *sshHost == "" || *sshUser == "" || *sshPass == "" {
+			fatal("fix-tags 需要 SSH 配置(config.json 或 -ssh-* 参数)")
+		}
+		os.Exit(runFixTags(*sshHost, *sshUser, *sshPass, *limit, *apply))
 	}
 
 	sc := NewSubsonicClient(*server, *user, *pass)
