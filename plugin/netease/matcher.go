@@ -312,6 +312,9 @@ func norm(s string) string {
 // SearchTitle 导出:曲名清洗(去序号/括号版本段/版本词),供 agent 做"曲名内拆歌手"
 func SearchTitle(s string) string { return searchTitle(s) }
 
+// Norm 导出:全归一化(全角/繁体/标点/大小写),供 agent 比较专辑歌手名
+func Norm(s string) string { return norm(s) }
+
 // CleanKeyword 清洗搜索关键词:全角转半角、繁转简、去标点、保留空格分隔
 func CleanKeyword(s string) string {
 	var b strings.Builder

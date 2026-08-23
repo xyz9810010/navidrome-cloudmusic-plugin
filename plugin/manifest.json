@@ -2,15 +2,17 @@
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
   "name": "CloudMusic Enhance",
   "author": "wujiaoxi",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "网易云音乐增强:智能评分匹配,补全歌词(含翻译合并)、专辑封面、专辑简介、歌手简介与头像",
   "website": "https://github.com/xyz9810010/navidrome-cloudmusic-plugin",
   "permissions": {
     "http": {
-      "reason": "向网易云请求搜索、歌词、封面与简介数据",
+      "reason": "向网易云/QQ音乐请求搜索、歌词、封面与简介数据",
       "requiredHosts": [
         "music.163.com",
-        "*.music.126.net"
+        "*.music.126.net",
+        "c.y.qq.com",
+        "*.gtimg.cn"
       ]
     },
     "kvstore": {
@@ -30,6 +32,11 @@
           "type": "string",
           "title": "封面分辨率 (网易云支持 200/300/500/800/1200)",
           "default": "1200"
+        },
+        "prefer_qq_cover": {
+          "type": "boolean",
+          "title": "封面优先用 QQ 音乐(无'博纳正版授权'水印),失败回退网易云",
+          "default": true
         }
       }
     },
@@ -39,6 +46,10 @@
         {
           "type": "Control",
           "scope": "#/properties/image_resolution"
+        },
+        {
+          "type": "Control",
+          "scope": "#/properties/prefer_qq_cover"
         }
       ]
     }

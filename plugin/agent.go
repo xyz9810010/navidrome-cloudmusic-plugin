@@ -154,6 +154,16 @@ func resolveAlbum(name, artist string) *albumInfo {
 }
 
 func (a *agent) GetAlbumImages(req metadata.AlbumRequest) (*metadata.AlbumImagesResponse, error) {
+	res, size := imageRes()
+
+	// QQ 音乐封面优先(无博纳等版权水印);未开启或没命中则回退网易云
+	if getConfigBool("prefer_qq_cover", true) {
+		if pic := resolveQQCover(req.Name, req.Artist); pic != "" {
+			pdk.Log(pdk.LogInfo, fmt.Sprintf("album 封面(QQ): %s/%s", req.Artist, req.Name))
+			return &metadata.AlbumImagesResponse{Images: []metadata.ImageInfo{{URL: pic, Size: 800}}}, nil
+		}
+	}
+
 	info := resolveAlbum(req.Name, req.Artist)
 	if info == nil {
 		return nil, nil
@@ -172,8 +182,59 @@ func (a *agent) GetAlbumImages(req metadata.AlbumRequest) (*metadata.AlbumImages
 			return nil, nil
 		}
 	}
-	res, size := imageRes()
 	return &metadata.AlbumImagesResponse{Images: []metadata.ImageInfo{{URL: netease.PicWithRes(pic, res), Size: size}}}, nil
+}
+
+// resolveQQCover 在 QQ 音乐搜同名专辑拿封面(缓存命中的直接返回)
+func resolveQQCover(album, artist string) string {
+	key := cacheKey("cm:qqcover", album, artist)
+	if v, ok, _ := host.KVStoreGet(key); ok && len(v) > 0 {
+		return string(v)
+	}
+	albums, err := netease.QQSearchAlbum(artist + " " + album)
+	if err != nil || len(albums) == 0 {
+		return ""
+	}
+	wantAlbum, wantArtist := netease.Norm(album), netease.Norm(artist)
+	var best *netease.QQAlbum
+	bestScore := 0
+	for i := range albums {
+		a := &albums[i]
+		name, singer := netease.Norm(a.Name), netease.Norm(a.Singer)
+		score := 0
+		if wantAlbum != "" && name == wantAlbum {
+			score += 50
+		} else if wantAlbum != "" && (strings.Contains(name, wantAlbum) || strings.Contains(wantAlbum, name)) {
+			score += 20
+		}
+		if wantArtist != "" && singer != "" {
+			if singer == wantArtist {
+				score += 50
+			} else if strings.Contains(singer, wantArtist) || strings.Contains(wantArtist, singer) {
+				score += 25
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			best = a
+		}
+	}
+	if best == nil || bestScore < 50 {
+		return ""
+	}
+	pic := netease.QQAlbumCoverURL(best.MID)
+	_ = host.KVStoreSet(key, []byte(pic))
+	return pic
+}
+
+// getConfigBool 布尔配置读取
+func getConfigBool(key string, def bool) bool {
+	v, ok := pdk.GetConfig(key)
+	if !ok || v == "" {
+		return def
+	}
+	v = strings.ToLower(v)
+	return v == "true" || v == "1" || v == "t" || v == "yes" || v == "y" || v == "on"
 }
 
 func (a *agent) GetAlbumInfo(req metadata.AlbumRequest) (*metadata.AlbumInfoResponse, error) {
