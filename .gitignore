@@ -6,7 +6,6 @@ ref-sky8282/
 ref-nd-lyrics/
 ref-navidrome/
 
-# 构建产物
+# 构建中间产物(.ndp 发布物入库,方便直接下载)
 plugin/plugin.wasm
-plugin/cloudmusic.ndp
 *.exe
