@@ -3,6 +3,7 @@
 package nassh
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -43,7 +44,7 @@ func (c *Client) Run(cmd string) (string, error) {
 	sess.Stdout = &b
 	sess.Stderr = &b
 	if err := sess.Run(cmd); err != nil {
-		return b.String(), fmt.Errorf("命令失败(%v): %s", err, lastLines(b.String(), 4))
+		return b.String(), fmt.Errorf("命令失败(%v): %s\n  cmd: %.200s", err, lastLines(b.String(), 4), cmd)
 	}
 	return b.String(), nil
 }
@@ -93,9 +94,65 @@ func (c *Client) WriteLrcFile(relPath, lrc string) error {
 	outPath = strings.TrimSuffix(outPath, ".mp3") + ".lrc"
 	cmd := fmt.Sprintf(
 		`echo '%s' | base64 -d > '/vol1/1000/音乐/%s'`,
-		hex.EncodeToString([]byte(lrc)), shQuote(outPath))
+		base64.StdEncoding.EncodeToString([]byte(lrc)), shQuote(outPath))
 	_, err := c.Run(cmd)
 	return err
+}
+
+// SongRef 库中歌曲信息
+type SongRef struct {
+	RelPath string
+	Title   string
+	Artist  string
+	SongID  string
+}
+
+// ListSongsMissingLrc 从 Navidrome 库取全部歌曲,过滤出没有 .lrc 伴生文件的。
+// 一次 find 拿全量 .lrc 清单,本地比对,避免逐文件 SSH 往返。
+func (c *Client) ListSongsMissingLrc() ([]SongRef, error) {
+	// 1. 全量 .lrc 相对路径集合
+	lrcOut, err := c.Run("find '/vol1/1000/音乐' -type f -name '*.lrc'")
+	if err != nil {
+		return nil, err
+	}
+	lrcSet := map[string]bool{}
+	prefix := "/vol1/1000/音乐/"
+	for _, p := range strings.Split(strings.TrimSpace(lrcOut), "\n") {
+		p = strings.TrimSpace(strings.TrimPrefix(p, prefix))
+		if p != "" {
+			lrcSet[strings.TrimSuffix(p, ".lrc")] = true
+		}
+	}
+
+	// 2. 全量歌曲,比对过滤
+	out, err := c.Run(
+		"docker exec navidrome-cn sqlite3 /data/navidrome.db " +
+			`"select id || '|' || path || '|' || title || '|' || coalesce(artist,'') from media_file;"`)
+	if err != nil {
+		return nil, err
+	}
+	var items []SongRef
+	seen := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) != 4 {
+			continue
+		}
+		rel := parts[1]
+		if (!strings.HasSuffix(rel, ".flac") && !strings.HasSuffix(rel, ".mp3")) || seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		base := rel
+		if i := strings.LastIndex(base, "."); i > 0 {
+			base = base[:i]
+		}
+		if lrcSet[base] {
+			continue
+		}
+		items = append(items, SongRef{RelPath: rel, Title: parts[2], Artist: parts[3], SongID: parts[0]})
+	}
+	return items, nil
 }
 
 // SetLyricCache 把手动指定的歌词写进 cloudmusic 插件的 KVStore,

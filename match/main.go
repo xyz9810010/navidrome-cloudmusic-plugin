@@ -28,16 +28,27 @@ func main() {
 		query   = flag.String("q", "", "搜索关键词(本地歌名/歌手)")
 		localIx = flag.Int("local", 0, "直接选第 N 首本地歌(0=交互选择)")
 		netIx   = flag.Int("netease", 0, "直接选第 N 条网易云结果(0=交互选择)")
+		batch   = flag.Bool("batch", false, "批量模式:扫描无.lrc的歌自动匹配补词(≥50分才写)")
+		limit   = flag.Int("limit", 0, "批量模式处理上限(0=全部)")
 	)
 	flag.Parse()
-	if *query == "" {
-		fmt.Println("用法: go run ./match -q \"歌名 歌手\" [-local N -netease N]")
-		os.Exit(1)
-	}
 
 	cfg := loadConfig()
 	if cfg.Server == "" || cfg.SSHHost == "" {
 		fmt.Println("[错误] 缺少 config.json(复制 config.example.json 填写)")
+		os.Exit(1)
+	}
+
+	// 批量模式
+	if *batch {
+		runBatch(cfg, *limit)
+		return
+	}
+
+	if *query == "" {
+		fmt.Println("用法:")
+		fmt.Println("  go run ./match -q \"歌名 歌手\" [-local N -netease N]")
+		fmt.Println("  go run ./match -batch [-limit N]   # 批量补无歌词的歌")
 		os.Exit(1)
 	}
 
