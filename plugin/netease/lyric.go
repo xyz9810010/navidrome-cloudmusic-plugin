@@ -66,6 +66,31 @@ func MergeTranslation(orig, trans string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// lyricNoise 歌词噪声行关键词:版权水印/平台标识等,命中整行剔除
+var lyricNoise = []string{
+	"博纳", "正版授权", "授权方", "未经许可", "未经授权",
+	"翻录必究", "版权所有", "著作权", "官方授权",
+}
+
+// FilterNoise 剔除歌词中的噪声行("博纳正版授权"等版权水印)
+func FilterNoise(lyric string) string {
+	lines := strings.Split(lyric, "\n")
+	out := lines[:0]
+	for _, l := range lines {
+		noisy := false
+		for _, k := range lyricNoise {
+			if strings.Contains(l, k) {
+				noisy = true
+				break
+			}
+		}
+		if !noisy {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // splitLrcLine 拆出 "[mm:ss.xx]" 时间戳与文本;非歌词行返回空时间戳
 func splitLrcLine(line string) (string, string) {
 	line = strings.TrimSpace(line)

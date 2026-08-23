@@ -284,7 +284,7 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 		return lyrics.GetLyricsResponse{}, nil
 	}
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 匹配[%s]: %s - %s -> %s id=%d", via, artist, track.Title, best.Name, best.ID))
-	text := netease.MergeTranslation(orig, trans)
+	text := netease.FilterNoise(netease.MergeTranslation(orig, trans))
 	setLyricCache(key, true, text)
 	writeLrcSidecar(track.Path, text)
 	return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: text}}}, nil

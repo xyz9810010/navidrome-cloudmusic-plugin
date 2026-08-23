@@ -92,7 +92,7 @@ func main() {
 	if err != nil || orig == "" {
 		fatal("这首歌在网易云没有歌词(id=%d)", picked.ID)
 	}
-	text := cloudmusic.MergeTranslation(orig, trans)
+	text := cloudmusic.FilterNoise(cloudmusic.MergeTranslation(orig, trans))
 
 	ssh, err := nassh.New(cfg.SSHHost, cfg.SSHUser, cfg.SSHPassword)
 	if err != nil {

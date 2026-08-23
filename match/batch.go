@@ -78,7 +78,7 @@ func runBatch(cfg localConfig, limit int) {
 				skipped++
 				continue
 			}
-			text := cloudmusic.MergeTranslation(orig, trans)
+			text := cloudmusic.FilterNoise(cloudmusic.MergeTranslation(orig, trans))
 			if err := ssh.WriteLrcFile(it.RelPath, text); err != nil {
 				failed++
 				fmt.Printf("  [lrc失败] %s: %v\n", it.RelPath, err)
