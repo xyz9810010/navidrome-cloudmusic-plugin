@@ -54,15 +54,17 @@ def ensure_container_env(client):
     """环境变量被飞牛界面重建打回原样时,自动重建容器修复。"""
     out, _ = run(client,
         "docker inspect navidrome-cn --format '{{range .Config.Env}}{{println .}}{{end}}'")
-    ok = "cloudmusic" in out and "LYRICSPRIORITY" in out.upper()
+    mounts, _ = run(client, "docker inspect navidrome-cn --format '{{json .HostConfig.Binds}}'")
+    ok = ("cloudmusic" in out and "LYRICSPRIORITY" in out.upper()
+          and ":rw" in mounts)
     if ok:
-        print("[env] 环境变量完整 ✓")
+        print("[env] 环境变量与 rw 挂载完整 ✓")
         return
     print("[env] 检测到环境变量缺失(可能被飞牛重建),自动重建容器...")
     out, err = run(client,
         "docker rm -f navidrome-cn >/dev/null 2>&1; "
         f"docker run -d --name navidrome-cn --restart unless-stopped -p 4535:4533 "
-        f"-v /vol2/1000/music:/music:ro -v /vol1/@appdata/navidrome-cn-data:/data "
+        f"-v /vol2/1000/music:/music:rw -v /vol1/@appdata/navidrome-cn-data:/data "
         f"{DOCKER_RUN_ENV} navidrome-cn:test")
     if "error" in out.lower() or err:
         raise RuntimeError(f"容器重建失败: {out} {err}")
@@ -118,11 +120,12 @@ def main():
                 break
         print(f"[{'已' if changed else '未'}检测到文件变更事件]")
 
-        # 4. 启用 + 重启 + 验证(必要时补一轮:启动扫描也可能重置 enabled)
+        # 4. 启用(含媒体库授权+写权限,供插件写 .lrc)+ 重启 + 验证
         for attempt in (1, 2):
             out, err = run(client,
                 "docker exec navidrome-cn sqlite3 /data/navidrome.db "
-                "\"update plugin set enabled=1 where id='cloudmusic';\" && "
+                "\"update plugin set enabled=1, all_libraries=1, allow_write_access=1 "
+                "where id='cloudmusic';\" && "
                 "docker restart navidrome-cn")
             if err:
                 print("[失败] 启用/重启:", err)

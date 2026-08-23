@@ -166,8 +166,8 @@ func main() {
 	}
 	defer exec.Close()
 
-	fmt.Println("\n重建容器(音乐目录 rw)...")
-	if err := exec.recreateContainer(true); err != nil {
+	fmt.Println("\n重建容器(确保音乐目录 rw + 完整环境变量)...")
+	if err := exec.recreateContainer(); err != nil {
 		fatal("容器重建失败: %v", err)
 	}
 
@@ -207,9 +207,9 @@ func main() {
 		}
 	}
 
-	fmt.Println("重建容器(音乐目录 ro)...")
-	if err := exec.recreateContainer(false); err != nil {
-		fmt.Printf("[警告] 恢复 ro 失败: %v(请手动检查容器状态!)\n", err)
+	fmt.Println("重建容器(恢复默认状态)...")
+	if err := exec.recreateContainer(); err != nil {
+		fmt.Printf("[警告] 重建失败: %v(请手动检查容器状态!)\n", err)
 	}
 
 	// 4. 等重扫后报告流派统计

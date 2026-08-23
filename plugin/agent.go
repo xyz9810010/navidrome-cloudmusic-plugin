@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -216,6 +218,7 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 		if json.Unmarshal(v, &lc) == nil {
 			if lc.Found {
 				pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 缓存命中: %s - %s", artist, track.Title))
+				writeLrcSidecar(track.Path, lc.Text)
 				return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: lc.Text}}}, nil
 			}
 			return lyrics.GetLyricsResponse{}, nil
@@ -250,5 +253,33 @@ func (a *agent) GetLyrics(req lyrics.GetLyricsRequest) (lyrics.GetLyricsResponse
 	pdk.Log(pdk.LogInfo, fmt.Sprintf("lyrics 匹配: %s - %s -> %s id=%d score=%d", artist, track.Title, best.Name, best.ID, score))
 	text := netease.MergeTranslation(orig, trans)
 	setLyricCache(key, true, text)
+	writeLrcSidecar(track.Path, text)
 	return lyrics.GetLyricsResponse{Lyrics: []lyrics.LyricsText{{Lang: "zh", Text: text}}}, nil
+}
+
+// writeLrcSidecar 把歌词写成音轨旁的 .lrc 伴生文件。
+// 需要 library+filesystem 权限(track.Path 才会有值)且容器音乐目录 rw 挂载;
+// 失败只记日志,不影响歌词返回。Navidrome 的 LyricsPriority 里 .lrc 排在插件前,
+// 写好之后这首歌就走文件、零网络请求。
+func writeLrcSidecar(relPath, text string) {
+	if relPath == "" || text == "" {
+		return
+	}
+	libs, err := host.LibraryGetAllLibraries()
+	if err != nil || len(libs) == 0 {
+		pdk.Log(pdk.LogWarn, "lrc 写入跳过: 拿不到媒体库信息")
+		return
+	}
+	// WASI 预开目录优先用 MountPoint,空则退回 Path
+	root := libs[0].MountPoint
+	if root == "" {
+		root = libs[0].Path
+	}
+	full := strings.TrimSuffix(root, "/") + "/" + strings.TrimPrefix(relPath, "/")
+	lrc := strings.TrimSuffix(full, filepath.Ext(full)) + ".lrc"
+	if err := os.WriteFile(lrc, []byte(text), 0644); err != nil {
+		pdk.Log(pdk.LogWarn, "lrc 写入失败("+lrc+"): "+err.Error())
+		return
+	}
+	pdk.Log(pdk.LogInfo, "lrc 已写入: "+lrc)
 }

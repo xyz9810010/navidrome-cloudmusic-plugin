@@ -16,6 +16,10 @@
     "kvstore": {
       "reason": "缓存歌词全文、歌手/专辑 ID 匹配结果与图片链接",
       "maxSize": "16777216"
+    },
+    "library": {
+      "reason": "将歌词写成 .lrc 伴生文件,Navidrome 后续直接读文件、零网络请求",
+      "filesystem": true
     }
   },
   "config": {

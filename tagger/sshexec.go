@@ -54,17 +54,14 @@ func lastLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// recreateContainer 重建 navidrome-cn 容器,musicRW 控制音乐目录挂载模式。
+// recreateContainer 重建 navidrome-cn 容器。
+// 音乐目录 rw 挂载(cloudmusic 插件要写 .lrc 伴生文件;tagger 也要写标签)。
 // 容器是无状态的(数据在卷里),重建是安全的;也用于修改 ND_* 环境变量。
-func (s *SSHExec) recreateContainer(musicRW bool) error {
-	mode := "ro"
-	if musicRW {
-		mode = "rw"
-	}
-	cmd := fmt.Sprintf(`docker rm -f navidrome-cn >/dev/null 2>&1; docker run -d --name navidrome-cn \
+func (s *SSHExec) recreateContainer() error {
+	cmd := `docker rm -f navidrome-cn >/dev/null 2>&1; docker run -d --name navidrome-cn \
 --restart unless-stopped \
 -p 4535:4533 \
--v /vol2/1000/music:/music:%s \
+-v /vol2/1000/music:/music:rw \
 -v /vol1/@appdata/navidrome-cn-data:/data \
 -e ND_DEFAULTLANGUAGE=zh-Hans \
 -e ND_SCANNER_EXTRACTOR=ffmpeg \
@@ -75,7 +72,7 @@ func (s *SSHExec) recreateContainer(musicRW bool) error {
 -e ND_DATAFOLDER=/data \
 -e ND_CONFIGFILE=/data/navidrome.toml \
 -e ND_PORT=4533 \
-navidrome-cn:test`, mode)
+navidrome-cn:test`
 	out, err := s.Run(cmd)
 	if err != nil {
 		return err
