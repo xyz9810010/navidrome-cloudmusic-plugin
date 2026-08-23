@@ -1,0 +1,8 @@
+{
+  "server": "http://192.168.5.3:4535",
+  "user": "你的navidrome用户名",
+  "password": "你的navidrome密码",
+  "ssh_host": "192.168.5.3",
+  "ssh_user": "你的NAS用户名",
+  "ssh_password": "你的NAS密码"
+}

@@ -1,0 +1,12 @@
+# 本地凭证(不入库)
+config.json
+
+# 第三方参考源码(克隆来的,不属于本项目)
+ref-sky8282/
+ref-nd-lyrics/
+ref-navidrome/
+
+# 构建产物
+plugin/plugin.wasm
+plugin/cloudmusic.ndp
+*.exe

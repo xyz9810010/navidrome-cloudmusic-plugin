@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
+  "name": "CloudMusic Enhance",
+  "author": "wujiaoxi",
+  "version": "0.1.1",
+  "description": "网易云音乐增强:智能评分匹配,补全歌词(含翻译合并)、专辑封面、专辑简介、歌手简介与头像",
+  "website": "https://github.com/xyz9810010/navidrome-cloudmusic-plugin",
+  "permissions": {
+    "http": {
+      "reason": "向网易云请求搜索、歌词、封面与简介数据",
+      "requiredHosts": [
+        "music.163.com",
+        "*.music.126.net"
+      ]
+    },
+    "kvstore": {
+      "reason": "缓存歌手/专辑 ID 匹配结果与图片链接",
+      "maxSize": "1048576"
+    }
+  },
+  "config": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "image_resolution": {
+          "type": "string",
+          "title": "封面分辨率 (网易云支持 200/300/500/800/1200)",
+          "default": "1200"
+        }
+      }
+    },
+    "uiSchema": {
+      "type": "VerticalLayout",
+      "elements": [
+        {
+          "type": "Control",
+          "scope": "#/properties/image_resolution"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,103 @@
+"""cloudmusic.ndp 一键部署到飞牛 NAS 的 navidrome-cn。
+
+流程:SFTP 上传 -> docker cp 进插件目录 -> 重新启用(文件变更会重置 enabled)
+     -> 重启容器 -> 验证插件加载。
+
+用法: python deploy.py   (需先运行 build.cmd 生成 plugin/cloudmusic.ndp)
+"""
+import json
+import sys
+import time
+
+import paramiko
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+
+def load_config():
+    """凭证从 gitignore 的 config.json 读取,避免入库泄露。"""
+    try:
+        with open("config.json", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("[错误] 缺少 config.json:请复制 config.example.json 为 config.json 并填写")
+        sys.exit(1)
+
+
+CFG = load_config()
+HOST = CFG["ssh_host"]
+USER = CFG["ssh_user"]
+PW = CFG["ssh_password"]
+LOCAL_NDP = "plugin/cloudmusic.ndp"
+REMOTE_TMP = "/tmp/cloudmusic.ndp"
+
+
+def run(client, cmd, timeout=60):
+    _, stdout, stderr = client.exec_command(cmd, timeout=timeout)
+    out = stdout.read().decode("utf-8", "replace").strip()
+    err = stderr.read().decode("utf-8", "replace").strip()
+    return out, err
+
+
+def main():
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(HOST, username=USER, password=PW, timeout=8,
+                   allow_agent=False, look_for_keys=False)
+
+    try:
+        # 1. 上传
+        sftp = client.open_sftp()
+        sftp.put(LOCAL_NDP, REMOTE_TMP)
+        sftp.close()
+
+        # 2. 拷进容器 + 权限对齐(文件变更会触发宿主自动发现,但 enabled 会被重置)
+        out, err = run(client,
+            "docker cp /tmp/cloudmusic.ndp navidrome-cn:/data/plugins/cloudmusic.ndp && "
+            "docker exec navidrome-cn chown 1000:0 /data/plugins/cloudmusic.ndp")
+        if err:
+            print("[失败] 安装:", err)
+            return 1
+
+        # 3. 轮询等宿主处理文件变更(它会把 enabled 重置为 0,必须等它处理完再改库;
+        #    watcher 的触发时机不定,固定 sleep 不可靠)
+        changed = False
+        for _ in range(15):
+            time.sleep(2)
+            out, _ = run(client,
+                "docker logs --since 2m navidrome-cn 2>&1 | "
+                "grep 'Plugin file changed' | grep cloudmusic | tail -1")
+            if out:
+                changed = True
+                break
+        print(f"[{'已' if changed else '未'}检测到文件变更事件]")
+
+        # 4. 启用 + 重启 + 验证(必要时补一轮:启动扫描也可能重置 enabled)
+        for attempt in (1, 2):
+            out, err = run(client,
+                "docker exec navidrome-cn sqlite3 /data/navidrome.db "
+                "\"update plugin set enabled=1 where id='cloudmusic';\" && "
+                "docker restart navidrome-cn")
+            if err:
+                print("[失败] 启用/重启:", err)
+                return 1
+            time.sleep(18)
+            out, _ = run(client,
+                "docker logs --since 1m navidrome-cn 2>&1 | "
+                "grep -E 'Loaded plugin.*cloudmusic' | tail -1")
+            if out:
+                print("[成功] 插件已加载:")
+                print(out)
+                return 0
+            enabled, _ = run(client,
+                "docker exec navidrome-cn sqlite3 /data/navidrome.db "
+                "\"select enabled from plugin where id='cloudmusic';\"")
+            print(f"[第{attempt}轮] 未加载 (enabled={enabled.strip()}),{'重试' if attempt == 1 else '放弃'}")
+        print("[警告] 请手动检查: docker logs --since 2m navidrome-cn | grep cloudmusic")
+        return 1
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
